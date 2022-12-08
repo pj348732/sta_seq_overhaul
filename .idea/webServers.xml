@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="WebServers">
+    <option name="servers">
+      <webServer id="7eb6f087-7f81-4800-86ce-d2c89a8506c5" name="DevBox">
+        <fileTransfer rootFolder="/b/home/pengfei_ji/projects/pengfei_ji/" accessType="SFTP" host="10.9.78.241" port="22" sshConfigId="aa4b1f13-fc91-40e2-b916-74fd693255b5" sshConfig="pengfei_ji@10.9.78.241:22 key" keyPair="true">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" keepAliveTimeout="0" passiveMode="true" shareSSLContext="true" />
+          </advancedOptions>
+        </fileTransfer>
+      </webServer>
+    </option>
+  </component>
+</project>
