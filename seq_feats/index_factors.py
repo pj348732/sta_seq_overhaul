@@ -40,7 +40,7 @@ V7: add correct itds
 class IndexFactors(FactorGroup):
 
     def __init__(self, base_path):
-        # /b/com_md_eq_cn/md_index/{date}/{选你要的index}
+        # norm merge error 20200227, 1600927
         self.base_path = base_path
         self.lv2_path = '/b/com_md_eq_cn/md_snapshot_l2/{day}/{skey}.parquet'
 
@@ -222,8 +222,8 @@ def batch_run():
     unit_tasks = [t for i, t in enumerate(dist_tasks) if i % total_worker == work_id]
     print('allocate the number of tasks %d out of %d' % (len(unit_tasks), len(dist_tasks)))
     ifac = IndexFactors('/v/sta_fileshare/sta_seq_overhaul/factor_dbs/')
-    ifac.generate_factors(day=20191223, skey=2002946, params=None)
-    exit()
+    # ifac.generate_factors(day=20191223, skey=2002946, params=None)
+    # exit()
     if len(unit_tasks) > 0:
         s = time.time()
         ifac.cluster_parallel_execute(days=[d[0] for d in unit_tasks],

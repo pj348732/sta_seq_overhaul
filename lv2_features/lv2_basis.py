@@ -1,5 +1,8 @@
 import os
 import pandas as pd
+import sys
+sys.path.insert(0, '../seq_feats/')
+sys.path.insert(1, '/home/pengfei_ji/krypton_a/DataModelPipeline_yan/dataProcessing/dataProcessingLib/')
 from factor_utils.common_utils import time_to_minute, get_trade_days, get_slurm_env, get_weekday, get_session_id, \
     get_abs_time, to_int_date, toIntdate
 import numpy as np
@@ -12,6 +15,7 @@ import random
 import time
 from tqdm import *
 from functools import reduce
+from snapshot import volAssignment
 
 
 def safe_adjMid(r):
@@ -25,7 +29,13 @@ def safe_adjMid(r):
     return adj_mid
 
 
-class LobBasis(FactorGroup):
+def safeBADist(bid1p, ask1p):
+    if (bid1p < 1e-3) or (ask1p < 1e-3):
+        return np.nan
+    return (ask1p - bid1p) / (0.5 * (bid1p + ask1p))
+
+
+class Lv2Basis(FactorGroup):
 
     def __init__(self, base_path):
         self.base_path = base_path
@@ -164,16 +174,11 @@ class LobBasis(FactorGroup):
             'ask10p_hole',
             'ask10p_next_tick',
             'bid10p_hole',
-            'bid10p_next_tick'
+            'bid10p_next_tick',
+            'baDist', 'marketShares', 'sellSize', 'buySize',
         ]
 
     def generate_factors(self, day, skey, params):
-
-        exist_df = self.factor_dao.read_factor_by_skey_and_day(factor_group='lob_basis', version='v1',
-                                                               day=day, skey=skey)
-        if exist_df is not None:
-            print('already %d, %d' % (day, skey))
-            return
 
         lv2_df = self.parse_basic_lv2(day, skey, True)
 
@@ -183,23 +188,49 @@ class LobBasis(FactorGroup):
         # compute price Magnitude
 
         for side in ['ask', 'bid']:
-            for i in range(1, 11):
+            for i in range(1, 6):
                 lv2_df[f'{side}{i}p_move'] = lv2_df[f'{side}{i}p'].diff(1) / lv2_df[f'{side}{i}p'].shift(1)
                 lv2_df[f'{side}{i}p_rel'] = lv2_df[f'{side}{i}p'] / lv2_df['adjMid'] - 1.
                 lv2_df[f'{side}{i}p_bbo_tick'] = (lv2_df[f'{side}{i}p'] - lv2_df[f'{side}1p']) / 0.01
 
-            for i in range(2, 11):
+            for i in range(2, 6):
                 lv2_df[f'{side}{i}p_hole'] = (lv2_df[f'{side}{i}p'] - lv2_df[f'{side}{i - 1}p']) / lv2_df[
                     'adjMid']
                 lv2_df[f'{side}{i}p_next_tick'] = (lv2_df[f'{side}{i}p'] - lv2_df[f'{side}{i - 1}p']) / 0.01
 
         for side in ['ask', 'bid']:
-            for i in range(1, 11):
+            for i in range(1, 6):
                 lv2_df[f'{side}{i}_size'] = lv2_df[f'{side}{i}p'] * lv2_df[f'{side}{i}q']
+
+        mta_path = '/b/com_md_eq_cn/mdbar1d_jq/{day}.parquet'.format(day=day)
+        vecBADist = np.vectorize(safeBADist)
+        bid1ps, ask1ps, bid1qs, ask1qs = \
+            lv2_df.bid1p.values, lv2_df.ask1p.values, lv2_df.bid1q.values, lv2_df.ask1q.values
+        baDists = vecBADist(bid1ps, ask1ps)
+        lv2_df['baDist'] = baDists
+        lv2_df['baDistUnit'] = lv2_df.eval('0.01 / adjMid')
+        lv2_df['distImbalance'] = lv2_df.eval('(adjMid - 0.5 * (ask1p + bid1p)) / (0.5 * (ask1p - bid1p))')
+        lv2_df['tradeVol'] = lv2_df.cum_volume.diff(1)
+        lv2_df['tradeVal'] = lv2_df.cum_amount.diff(1)
+        lv2_df['bid1pDelay'] = lv2_df.bid1p.shift(1)
+        lv2_df['ask1pDelay'] = lv2_df.ask1p.shift(1)
+        tradeVals = lv2_df.tradeVal.values
+        tradeVols = lv2_df.tradeVol.values
+        bid1pDelay1s = lv2_df.bid1pDelay.values
+        ask1pDelay1s = lv2_df.ask1pDelay.values
+        vecVolAssignment = np.vectorize(volAssignment)
+        sellSizes = vecVolAssignment(tradeVals, tradeVols, bid1pDelay1s, ask1pDelay1s)
+        buySizes = tradeVols - sellSizes
+        lv2_df['sellSize'] = sellSizes
+        lv2_df['buySize'] = buySizes
+        mta_df = pd.read_parquet(mta_path)
+        marketShares = mta_df.loc[mta_df.skey == skey]['marketShares'].iloc[0] / 10000
+        lv2_df['marketShares'] = marketShares
 
         lv2_df = lv2_df[self.factor_names]
         self.factor_dao.save_factors(lv2_df, day=day, skey=skey,
-                                     version='v1', factor_group='lob_basis')
+                                     version='v1', factor_group='lv2_basis')
+        exit()
 
     def parse_basic_lv2(self, day, skey, is_today):
 
@@ -266,7 +297,11 @@ if __name__ == '__main__':
     work_id = array_id * task_size + proc_id
     total_worker = array_size * task_size
 
-    with open('./all_ic.pkl', 'rb') as fp:
+    factor_dao = FactorDAO('/v/sta_fileshare/sta_seq_overhaul/factor_dbs/')
+    factor_dao.register_factor_info('lv2_basis',
+                                    GroupType.TICK_LEVEL, StoreGranularity.DAY_SKEY_FILE, 'parquet')
+
+    with open('../seq_feats/all_ic.pkl', 'rb') as fp:
         all_skeys = pickle.load(fp)
     trade_days = [t for t in get_trade_days() if 20190101 <= t <= 20221201]
 
@@ -280,7 +315,7 @@ if __name__ == '__main__':
     random.shuffle(dist_tasks)
     unit_tasks = [t for i, t in enumerate(dist_tasks) if i % total_worker == work_id]
     print('allocate the number of tasks %d out of %d' % (len(unit_tasks), len(dist_tasks)))
-    lob_basis = LobBasis('/v/sta_fileshare/sta_seq_overhaul/factor_dbs/')
+    lob_basis = Lv2Basis('/v/sta_fileshare/sta_seq_overhaul/factor_dbs/')
 
     if len(unit_tasks) > 0:
         s = time.time()

@@ -1,6 +1,8 @@
 import os
 import warnings
 import pandas as pd
+import sys
+sys.path.insert(0, '../seq_feats/')
 from factor_utils.common_utils import time_to_minute, get_trade_days, get_slurm_env, get_weekday, get_session_id, \
     get_abs_time
 import numpy as np
@@ -10,8 +12,6 @@ from factor_utils.factor_dao import FactorDAO, StoreGranularity, FactorGroup, Gr
 import pickle
 import random
 import time
-from tqdm import *
-from factor_utils.feature_api import read_labels
 from datetime import timedelta
 import datetime
 
@@ -61,37 +61,14 @@ def sellRetFuture(f_i, all_futures, sort_i, bid1p):
 top_ratio_ce = 0.1
 
 
-class ARLabels(FactorGroup):
+class Lv2Labels(FactorGroup):
 
     def __init__(self, base_path):
         self.base_path = base_path
         self.factor_dao = FactorDAO(self.base_path)
         self.lv2_path = '/b/com_md_eq_cn/md_snapshot_l2/{day}/{skey}.parquet'
         self.mbo_path = '/b/com_md_eq_cn/md_snapshot_mbd/{day}/{skey}.parquet'
-        # self.label_factors = ['buyRetFuture3', 'sellRetFuture3', 'buyRetFuture6', 'sellRetFuture6', 'buyRetFuture9',
-        #                       'sellRetFuture9', 'buyRetFuture12', 'sellRetFuture12', 'buyRetFuture15',
-        #                       'sellRetFuture15',
-        #                       'buyRetFuture18', 'sellRetFuture18', 'buyRetFuture21', 'sellRetFuture21',
-        #                       'buyRetFuture24',
-        #                       'sellRetFuture24', 'buyRetFuture27', 'sellRetFuture27', 'buyRetFuture30',
-        #                       'sellRetFuture30',
-        #                       'buyRetFuture33', 'sellRetFuture33', 'buyRetFuture36', 'sellRetFuture36',
-        #                       'buyRetFuture39',
-        #                       'sellRetFuture39', 'buyRetFuture42', 'sellRetFuture42', 'buyRetFuture45',
-        #                       'sellRetFuture45',
-        #                       'buyRetFuture48', 'sellRetFuture48', 'buyRetFuture51', 'sellRetFuture51',
-        #                       'buyRetFuture54',
-        #                       'sellRetFuture54', 'buyRetFuture57', 'sellRetFuture57', 'buyRetFuture60',
-        #                       'sellRetFuture60',
-        #                       'buyRetFuture63', 'sellRetFuture63', 'buyRetFuture66', 'sellRetFuture66',
-        #                       'buyRetFuture69',
-        #                       'sellRetFuture69', 'buyRetFuture72', 'sellRetFuture72', 'buyRetFuture75',
-        #                       'sellRetFuture75',
-        #                       'buyRetFuture78', 'sellRetFuture78', 'buyRetFuture81', 'sellRetFuture81',
-        #                       'buyRetFuture84',
-        #                       'sellRetFuture84', 'buyRetFuture87', 'sellRetFuture87', 'buyRetFuture90',
-        #                       'sellRetFuture90',
-        #                       ]
+
         self.label_factors = [
 
             'sellRetFuture30', 'buyRetFuture30', 'sellRetFuture30Top', 'buyRetFuture30Top',
@@ -105,22 +82,12 @@ class ARLabels(FactorGroup):
             'sellRetFuture270', 'buyRetFuture270', 'sellRetFuture270Top', 'buyRetFuture270Top',
             'sellRetFuture300', 'buyRetFuture300', 'sellRetFuture300Top', 'buyRetFuture300Top',
         ]
+
         self.index_cols = [
             'skey', 'date', 'time', 'ordering', 'nearLimit', 'SortIndex', 'minute'
         ]
 
     def generate_factors(self, day, skey, params):
-
-        try:
-            exist_df = self.factor_dao.read_factor_by_skey_and_day(factor_group='label_factors',
-                                                                   version='v4',
-                                                                   day=day, skey=skey)
-        except Exception:
-            exist_df = None
-        if exist_df is not None:
-            print('already %d, %d' % (day, skey))
-            time.sleep(0.01)
-            return
 
         lv2_path = self.lv2_path.format(day=day, skey=skey)
         if os.path.exists(lv2_path):
@@ -173,7 +140,7 @@ class ARLabels(FactorGroup):
 
             # TODO: special consideration
             lv2_df = lv2_df[self.index_cols + self.label_factors]
-            self.factor_dao.save_factors(lv2_df, day=day, skey=skey, version='v4', factor_group='label_factors')
+            self.factor_dao.save_factors(lv2_df, day=day, skey=skey, version='v1', factor_group='lv2_label')
         else:
             print('miss %d, %d' % (day, skey))
 
@@ -222,62 +189,29 @@ if __name__ == '__main__':
     work_id = array_id * task_size + proc_id
     total_worker = array_size * task_size
 
-    with open('./all_ic.pkl', 'rb') as fp:
+    # factor_dao = FactorDAO('/v/sta_fileshare/sta_seq_overhaul/factor_dbs/')
+    # factor_dao.register_factor_info('lv2_label',
+    #                                 GroupType.TICK_LEVEL, StoreGranularity.DAY_SKEY_FILE, 'parquet')
+
+    with open('../seq_feats/all_ic.pkl', 'rb') as fp:
         all_skeys = pickle.load(fp)
+    trade_days = [t for t in get_trade_days() if 20190101 <= t <= 20221201]
 
-    factor_dao = FactorDAO('/v/sta_fileshare/sta_seq_overhaul/factor_dbs/')
-    lob_pairs = factor_dao.find_day_skey_pairs(factor_group='lob_static_size_factors',
-                                               version='v3', start_day=20200101,
-                                               end_day=20221201, stock_set=all_skeys)
-
-    label_pairs = factor_dao.find_day_skey_pairs(factor_group='label_factors',
-                                                 version='v4', start_day=20200101,
-                                                 end_day=20221201, stock_set=all_skeys)
-    lob_pairs = {(p[0], p[1]) for p in lob_pairs}
-    label_pairs = {(p[0], p[1]) for p in label_pairs}
-    print(len(lob_pairs), len(label_pairs))
-
-    label_diff = lob_pairs - label_pairs
-    lob_diff = label_pairs - lob_pairs
-    print(label_diff - lob_diff)
-    print(lob_diff - label_diff)
-    print('Label diff %d' % len(label_diff))
-    print('LOB diff %d' % len(lob_diff))
-    exit()
-    # skey_list = set()
-    # with open(f'/b/work/pengfei_ji/factor_dbs/stock_map/ic_price_group/period_skey2groups.pkl', 'rb') as fp:
-    #     grouped_skeys = pickle.load(fp)
-    # ranges = [20200101, 20200201, 20200301, 20200401, 20200501, 20200601,
-    #           20200701, 20200801, 20200901, 20201001, 20201101, 20201201]
-    # for r_i in ranges:
-    #     skey_list |= (grouped_skeys[r_i]['HIGH'] | grouped_skeys[r_i]['MID_HIGH'] | grouped_skeys[r_i]['MID_LOW'] |
-    #                   grouped_skeys[r_i]['LOW'])
-    #
     dist_tasks = []
-    # for day_i in get_trade_days():
-    #     if 20190101 <= day_i <= 20201231:
-    #         for skey_i in skey_list:
-    #             dist_tasks.append((day_i, skey_i))
-
-    with open('./all_ic.pkl', 'rb') as fp:
-        all_skeys = pickle.load(fp)
-
-    for day_i in get_trade_days():
-        if 20190101 <= day_i <= 20221201:
-            for skey_i in all_skeys:
-                dist_tasks.append((day_i, skey_i))
+    for day_i in trade_days:
+        for skey_i in all_skeys:
+            dist_tasks.append((day_i, skey_i))
 
     dist_tasks = list(sorted(dist_tasks))
     random.seed(512)
     random.shuffle(dist_tasks)
     unit_tasks = [t for i, t in enumerate(dist_tasks) if i % total_worker == work_id]
     print('allocate the number of tasks %d out of %d' % (len(unit_tasks), len(dist_tasks)))
-    lob_sf = ARLabels('/v/sta_fileshare/sta_seq_overhaul/factor_dbs/')
-    lob_sf.generate_factors(day=20200721, skey=1688256, params=None)
-    exit()
+    lob_basis = Lv2Labels('/v/sta_fileshare/sta_seq_overhaul/factor_dbs/')
+
     if len(unit_tasks) > 0:
         s = time.time()
-        lob_sf.cluster_parallel_execute(days=[d[0] for d in unit_tasks],
-                                        skeys=[d[1] for d in unit_tasks])
+        lob_basis.cluster_parallel_execute(days=[d[0] for d in unit_tasks],
+                                           skeys=[d[1] for d in unit_tasks])
         e = time.time()
         print('time used %f' % (e - s))

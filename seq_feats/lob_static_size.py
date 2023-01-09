@@ -171,6 +171,17 @@ class LOBStaticSizeRolling(FactorGroup):
         self.factor_dao = FactorDAO(self.base_path)
 
     def generate_factors(self, day, skey, params):
+        try:
+            exist_df = self.factor_dao.read_factor_by_skey_and_day(factor_group='lob_static_size_factors',
+                                                                   version='v6',
+                                                                   day=day, skey=skey)
+        except Exception:
+            exist_df = None
+
+        if exist_df is not None:
+            print('already %d, %d' % (day, skey))
+            return
+
         today_df = self.factor_dao.read_factor_by_skey_and_day(factor_group='lob_static_size_factors',
                                                                skey=skey, day=day, version='v3')
         if today_df is None:
@@ -512,19 +523,28 @@ if __name__ == '__main__':
     work_id = array_id * task_size + proc_id
     total_worker = array_size * task_size
 
-    skey_list = set()
-    with open(f'/b/work/pengfei_ji/factor_dbs/stock_map/ic_price_group/period_skey2groups.pkl', 'rb') as fp:
-        grouped_skeys = pickle.load(fp)
-    ranges = [20200101, 20200201, 20200301, 20200401, 20200501, 20200601,
-              20200701, 20200801, 20200901, 20201001, 20201101, 20201201]
-    for r_i in ranges:
-        skey_list |= (grouped_skeys[r_i]['HIGH'] | grouped_skeys[r_i]['MID_HIGH'] | grouped_skeys[r_i]['MID_LOW'] |
-                      grouped_skeys[r_i]['LOW'])
+    # skey_list = set()
+    # with open(f'/b/work/pengfei_ji/factor_dbs/stock_map/ic_price_group/period_skey2groups.pkl', 'rb') as fp:
+    #     grouped_skeys = pickle.load(fp)
+    # ranges = [20200101, 20200201, 20200301, 20200401, 20200501, 20200601,
+    #           20200701, 20200801, 20200901, 20201001, 20201101, 20201201]
+    # for r_i in ranges:
+    #     skey_list |= (grouped_skeys[r_i]['HIGH'] | grouped_skeys[r_i]['MID_HIGH'] | grouped_skeys[r_i]['MID_LOW'] |
+    #                   grouped_skeys[r_i]['LOW'])
+    #
+    # dist_tasks = []
+    # for day_i in get_trade_days():
+    #     if 20190101 <= day_i <= 20201231:
+    #         for skey_i in skey_list:
+    #             dist_tasks.append((day_i, skey_i))
 
     dist_tasks = []
+    with open('./all_ic.pkl', 'rb') as fp:
+        all_skeys = pickle.load(fp)
+
     for day_i in get_trade_days():
-        if 20190101 <= day_i <= 20201231:
-            for skey_i in skey_list:
+        if 20190101 <= day_i <= 20221201:
+            for skey_i in all_skeys:
                 dist_tasks.append((day_i, skey_i))
 
     dist_tasks = list(sorted(dist_tasks))

@@ -70,9 +70,17 @@ class LOBSTFactors(FactorGroup):
                         self.event_cols.append(f'{side}{i}_{e_name}_bin_{bi}')
 
     def generate_factors(self, day, skey, params):
+
+        exist_df = self.factor_dao.read_factor_by_skey_and_day(factor_group='lob_flow',
+                                                               version='v1',
+                                                               day=day, skey=skey)
+        if exist_df is not None:
+            print('already %d, %d' % (day, skey))
+            return
+
         lv2_df = self.parse_basic_lv2(day, skey, True)
-        event_df = self.factor_dao.read_factor_by_skey_and_day(factor_group='lob_event', day=day,
-                                                               skey=skey, version='v2')
+        event_df = self.factor_dao.read_factor_by_skey_and_day(factor_group='lob_static_size_factors', day=day,
+                                                               skey=skey, version='v6')
         mbd_df = self.parse_mbd(day, skey)
 
         # cols = []
@@ -222,7 +230,7 @@ class LOBSTFactors(FactorGroup):
                         lv2_df[f'{side}{lvl}_displacement_flow'] = np.where(cmps, dis_vals_1, dis_vals_2)
 
                     lv2_df['mask'] = lv2_df[f'{side}{lvl}p'] == lv2_df[f'{side}{lvl}p'].shift(1)
-                    lv2_df[f'{side}{lvl}_displacement_flow'].mask(event_df['mask'], 0, inplace=True)
+                    # lv2_df[f'{side}{lvl}_displacement_flow'].mask(event_df['mask'], 0, inplace=True)
 
                     for eve in ('insert', 'cancel', 'trade'):
                         lv2_df[f'{side}{lvl}_{eve}_flow'] = event_df[f'{side}{lvl}_{eve}_prev_size']
@@ -379,24 +387,37 @@ if __name__ == '__main__':
     task_size = int(get_slurm_env("SLURM_NTASKS"))
     work_id = array_id * task_size + proc_id
     total_worker = array_size * task_size
-    skey_list = set()
-
-    with open(f'/b/work/pengfei_ji/factor_dbs/stock_map/ic_price_group/period_skey2groups.pkl', 'rb') as fp:
-        grouped_skeys = pickle.load(fp)
-    ranges = [20200101, 20200201, 20200301, 20200401, 20200501, 20200601,
-              20200701, 20200801, 20200901, 20201001, 20201101, 20201201]
-
-    for r_i in ranges:
-        skey_list |= (grouped_skeys[r_i]['HIGH'] | grouped_skeys[r_i]['MID_HIGH'] | grouped_skeys[r_i]['MID_LOW'] |
-                      grouped_skeys[r_i]['LOW'])
+    # skey_list = set()
+    #
+    # with open(f'/b/work/pengfei_ji/factor_dbs/stock_map/ic_price_group/period_skey2groups.pkl', 'rb') as fp:
+    #     grouped_skeys = pickle.load(fp)
+    # ranges = [20200101, 20200201, 20200301, 20200401, 20200501, 20200601,
+    #           20200701, 20200801, 20200901, 20201001, 20201101, 20201201]
+    #
+    # for r_i in ranges:
+    #     skey_list |= (grouped_skeys[r_i]['HIGH'] | grouped_skeys[r_i]['MID_HIGH'] | grouped_skeys[r_i]['MID_LOW'] |
+    #                   grouped_skeys[r_i]['LOW'])
+    #
+    # dist_tasks = []
+    # for day_i in get_trade_days():
+    #     if 20190101 <= day_i <= 20201231:
+    #         for skey_i in skey_list:
+    #             dist_tasks.append((day_i, skey_i))
+    #
+    # dist_tasks = list(sorted(dist_tasks))
 
     dist_tasks = []
+    with open('./all_ic.pkl', 'rb') as fp:
+        all_skeys = pickle.load(fp)
+
     for day_i in get_trade_days():
-        if 20190101 <= day_i <= 20201231:
-            for skey_i in skey_list:
+        if 20190101 <= day_i <= 20221201:
+            for skey_i in all_skeys:
                 dist_tasks.append((day_i, skey_i))
 
     dist_tasks = list(sorted(dist_tasks))
+    random.seed(512)
+    random.shuffle(dist_tasks)
     random.seed(1024)
     random.shuffle(dist_tasks)
     unit_tasks = [t for i, t in enumerate(dist_tasks) if i % total_worker == work_id]

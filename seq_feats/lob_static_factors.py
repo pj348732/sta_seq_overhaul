@@ -366,6 +366,13 @@ class LOBStaticSizeFactors(FactorGroup):
 
     def generate_factors(self, day, skey, params):
 
+        exist_df = self.factor_dao.read_factor_by_skey_and_day(factor_group='lob_static_size_factors',
+                                                               version='v3',
+                                                               day=day, skey=skey)
+        if exist_df is not None:
+            print('already %d, %d' % (day, skey))
+            return
+
         print(day, skey)
         lv2_df = self.parse_basic_lv2(day, skey, True)
         mbd_df = self.parse_mbd(day, skey)
@@ -668,29 +675,31 @@ if __name__ == '__main__':
     task_size = int(get_slurm_env("SLURM_NTASKS"))
     work_id = array_id * task_size + proc_id
     total_worker = array_size * task_size
-    skey_list = set()
-    with open(f'/b/work/pengfei_ji/factor_dbs/stock_map/ic_price_group/period_skey2groups.pkl', 'rb') as fp:
-        grouped_skeys = pickle.load(fp)
-    ranges = [20200101, 20200201, 20200301, 20200401, 20200501, 20200601,
-              20200701, 20200801, 20200901, 20201001, 20201101, 20201201]
-    for r_i in ranges:
-        skey_list |= (grouped_skeys[r_i]['HIGH'] | grouped_skeys[r_i]['MID_HIGH'] | grouped_skeys[r_i]['MID_LOW'] |
-                      grouped_skeys[r_i]['LOW'])
+    # skey_list = set()
+    # with open(f'/b/work/pengfei_ji/factor_dbs/stock_map/ic_price_group/period_skey2groups.pkl', 'rb') as fp:
+    #     grouped_skeys = pickle.load(fp)
+    # ranges = [20200101, 20200201, 20200301, 20200401, 20200501, 20200601,
+    #           20200701, 20200801, 20200901, 20201001, 20201101, 20201201]
+    # for r_i in ranges:
+    #     skey_list |= (grouped_skeys[r_i]['HIGH'] | grouped_skeys[r_i]['MID_HIGH'] | grouped_skeys[r_i]['MID_LOW'] |
+    #                   grouped_skeys[r_i]['LOW'])
+
     dist_tasks = []
+    with open('./all_ic.pkl', 'rb') as fp:
+        all_skeys = pickle.load(fp)
+
     for day_i in get_trade_days():
-        if 20190101 <= day_i <= 20201231:
-            for skey_i in skey_list:
+        if 20190101 <= day_i <= 20221201:
+            for skey_i in all_skeys:
                 dist_tasks.append((day_i, skey_i))
 
     dist_tasks = list(sorted(dist_tasks))
-    random.seed(1024)
+    random.seed(512)
     random.shuffle(dist_tasks)
     unit_tasks = [t for i, t in enumerate(dist_tasks) if i % total_worker == work_id]
     print('allocate the number of tasks %d out of %d' % (len(unit_tasks), len(dist_tasks)))
-    lob_sf = LOBStaticPriceFactors('/v/sta_fileshare/sta_seq_overhaul/factor_dbs/')
-    # lob_sf = LOBStaticSizeFactors('/v/sta_fileshare/sta_seq_overhaul/factor_dbs/')
-    lob_sf.generate_factors(day=20200526, skey=1601778, params=None)
-    exit()
+    # lob_sf = LOBStaticPriceFactors('/v/sta_fileshare/sta_seq_overhaul/factor_dbs/')
+    lob_sf = LOBStaticSizeFactors('/v/sta_fileshare/sta_seq_overhaul/factor_dbs/')
     """
     0: error 20200701, 1600633
     0: error 20200903, 1600008

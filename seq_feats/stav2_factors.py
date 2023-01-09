@@ -55,14 +55,15 @@ class STAV2Factors(FactorGroup):
         ]
         self.keep_cols = [
             'baDist', 'baDistUnit', 'distImbalance', 'bid1pDelay', 'ask1pDelay',
-            'sellSize', 'buySize', 'marketShares', 'adjMid'
+            'sellSize', 'buySize', 'marketShares', 'adjMid', 'tradeVol', 'tradeVal'
         ]
 
     def generate_factors(self, day, skey, params):
 
-        # if os.path.exists(f'/v/sta_fileshare/sta_seq_overhaul/factor_dbs/TICK_LEVEL/stav2_factors/v1/{day}/{skey}/stav2_factors_{day}_{skey}.parquet'):
-        #     print('already %d, %d' %(day, skey))
-        #     time.sleep(0.01)
+        # if os.path.exists(
+        #         f'/v/sta_fileshare/sta_seq_overhaul/factor_dbs/TICK_LEVEL/stav2_factors/v2/{day}/{skey}/stav2_factors_{day}_{skey}.parquet'):
+        #     print('already %d, %d' % (day, skey))
+        #     time.sleep(0.05)
         #     return
 
         lv2_df = self.parse_basic_lv2(day, skey, is_today=True)
@@ -161,15 +162,14 @@ if __name__ == '__main__':
     work_id = array_id * task_size + proc_id
     total_worker = array_size * task_size
 
-
-    with open('/b/home/pengfei_ji/airflow_scripts/rich_workflow/all_ic.json', 'rb') as fp:
-        all_skeys = pickle.load(fp)
-    trade_days = [t for t in get_trade_days() if 20210101 <= t <= 20221201]
-
-    dist_tasks = []
-    for day_i in trade_days:
-        for skey_i in all_skeys:
-            dist_tasks.append((day_i, skey_i))
+    # with open('/b/home/pengfei_ji/airflow_scripts/rich_workflow/all_ic.json', 'rb') as fp:
+    #     all_skeys = pickle.load(fp)
+    # trade_days = [t for t in get_trade_days() if 20210101 <= t <= 20221201]
+    #
+    # dist_tasks = []
+    # for day_i in trade_days:
+    #     for skey_i in all_skeys:
+    #         dist_tasks.append((day_i, skey_i))
 
     # skey_list = set()
     # with open(f'/b/work/pengfei_ji/factor_dbs/stock_map/ic_price_group/period_skey2groups.pkl', 'rb') as fp:
@@ -186,13 +186,23 @@ if __name__ == '__main__':
     #         for skey_i in skey_list:
     #             dist_tasks.append((day_i, skey_i))
     #
+    dist_tasks = []
+    with open('./all_ic.pkl', 'rb') as fp:
+        all_skeys = pickle.load(fp)
 
+    for day_i in get_trade_days():
+        if 20190101 <= day_i <= 20221201:
+            for skey_i in all_skeys:
+                dist_tasks.append((day_i, skey_i))
     dist_tasks = list(sorted(dist_tasks))
     random.seed(1024)
     random.shuffle(dist_tasks)
+
     unit_tasks = [t for i, t in enumerate(dist_tasks) if i % total_worker == work_id]
     print('allocate the number of tasks %d out of %d' % (len(unit_tasks), len(dist_tasks)))
     lob_sf = STAV2Factors('/v/sta_fileshare/sta_seq_overhaul/factor_dbs/')
+    lob_sf.generate_factors(day=20200929, skey=1600066, params=dict())
+    exit()
     if len(unit_tasks) > 0:
         s = time.time()
         lob_sf.cluster_parallel_execute(days=[d[0] for d in unit_tasks],

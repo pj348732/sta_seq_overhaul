@@ -10,6 +10,9 @@ import pickle
 import random
 import time
 from tqdm import *
+from statsmodels.tsa.holtwinters import SimpleExpSmoothing, Holt
+from scipy.stats.mstats import pearsonr, spearmanr
+
 
 
 def pretty_name(col_name):
@@ -123,7 +126,7 @@ class MinuteNormalizer(FactorGroup):
         #                                          group_type=GroupType.TICK_LEVEL,
         #                                          store_granularity=StoreGranularity.SKEY_FILE, save_format='parquet')
         # exit()
-        for day_i in tqdm(iter_time_range(20190101, 20201231)):
+        for day_i in tqdm(iter_time_range(20190101, 20221201)):
             # compute normalizer of day_i
             try:
                 trade_day_idx = self.trade_days.index(day_i)
@@ -142,7 +145,7 @@ class MinuteNormalizer(FactorGroup):
                 if tick_df is not None:
 
                     tick_df = tick_df.loc[(tick_df.minute != -1) & (~tick_df.nearLimit)]
-                    tick_df.drop(columns=['time', 'date', 'ordering', 'nearLimit', 'SortIndex'], inplace=True)
+                    tick_df.drop(columns=['time', 'ordering', 'nearLimit', 'SortIndex'], inplace=True)
                     self.tick_dfs.append(tick_df)
 
                 else:
@@ -166,7 +169,7 @@ class MinuteNormalizer(FactorGroup):
                 'minute_': 'minute',
             }, inplace=True)
             skey_norms.columns = [pretty_name(col) for col in skey_norms.columns.values]
-            print(skey_norms.shape, skey_norms.date.min(), skey_norms.date.max())
+            print(skey, skey_norms.date.min(), skey_norms.date.max())
             self.factor_dao.save_normalizers(data_df=skey_norms, factor_group=self.factor_group,
                                              normalizer_name='minute_norm',
                                              skey=skey, day=None, version=self.factor_version)
@@ -189,20 +192,22 @@ class UniverseNormalizer(FactorGroup):
         self.day2dfs = dict()
         self.std_cols = [
             'minute',
-            'IFRet', 'ICRet', 'CSIRet', 'IFSize', 'ICSize', 'CSISize', '3030067Ret', '3030067Size', '3030066Ret',
-            '3030066Size', '3030065Ret', '3030065Size', '3030064Ret', '3030064Size', '3030063Ret', '3030063Size',
-            '3030062Ret', '3030062Size', '3030061Ret', '3030061Size', '3030060Ret', '3030060Size', '3030059Ret',
-            '3030059Size', '3030058Ret', '3030058Size', '3030057Ret', '3030057Size', '3030056Ret', '3030056Size',
-            '3030055Ret', '3030055Size', '3030054Ret', '3030054Size', '3030053Ret', '3030053Size', '3030052Ret',
-            '3030052Size', '3030051Ret', '3030051Size', '3030050Ret', '3030050Size', '3030049Ret', '3030049Size',
-            '3030048Ret', '3030048Size', '3030047Ret', '3030047Size', '3030046Ret', '3030046Size', '3030045Ret',
-            '3030045Size', '3030044Ret', '3030044Size', '3030043Ret', '3030043Size', '3030042Ret', '3030042Size',
-            '3030041Ret', '3030041Size', '3030040Ret', '3030040Size', '3030039Ret', '3030039Size', '3030038Ret',
-            '3030038Size', '3030037Ret', '3030037Size', '3030036Ret', '3030036Size', '3011050Ret', '3011050Size',
-            '3011049Ret', '3011049Size', '3011047Ret', '3011047Size', '3011046Ret', '3011046Size', '3011045Ret',
-            '3011045Size', '3011044Ret', '3011044Size', '3011043Ret', '3011043Size', '3011042Ret', '3011042Size',
-            '3011041Ret', '3011041Size', '3011031Ret', '3011031Size', '3011030Ret', '3011030Size',
-            'industryRet', 'industrySize'
+            # 'IFRet', 'ICRet', 'CSIRet', 'IFSize', 'ICSize', 'CSISize',
+            'tradeVol', 'stockRet', 'meanSize', 'spread', 'spread_tick'
+            # '3030067Ret', '3030067Size', '3030066Ret',
+            # '3030066Size', '3030065Ret', '3030065Size', '3030064Ret', '3030064Size', '3030063Ret', '3030063Size',
+            # '3030062Ret', '3030062Size', '3030061Ret', '3030061Size', '3030060Ret', '3030060Size', '3030059Ret',
+            # '3030059Size', '3030058Ret', '3030058Size', '3030057Ret', '3030057Size', '3030056Ret', '3030056Size',
+            # '3030055Ret', '3030055Size', '3030054Ret', '3030054Size', '3030053Ret', '3030053Size', '3030052Ret',
+            # '3030052Size', '3030051Ret', '3030051Size', '3030050Ret', '3030050Size', '3030049Ret', '3030049Size',
+            # '3030048Ret', '3030048Size', '3030047Ret', '3030047Size', '3030046Ret', '3030046Size', '3030045Ret',
+            # '3030045Size', '3030044Ret', '3030044Size', '3030043Ret', '3030043Size', '3030042Ret', '3030042Size',
+            # '3030041Ret', '3030041Size', '3030040Ret', '3030040Size', '3030039Ret', '3030039Size', '3030038Ret',
+            # '3030038Size', '3030037Ret', '3030037Size', '3030036Ret', '3030036Size', '3011050Ret', '3011050Size',
+            # '3011049Ret', '3011049Size', '3011047Ret', '3011047Size', '3011046Ret', '3011046Size', '3011045Ret',
+            # '3011045Size', '3011044Ret', '3011044Size', '3011043Ret', '3011043Size', '3011042Ret', '3011042Size',
+            # '3011041Ret', '3011041Size', '3011031Ret', '3011031Size', '3011030Ret', '3011030Size',
+            # 'industryRet', 'industrySize'
         ]
 
     def generate_factors(self, day, skey, params):
@@ -216,8 +221,10 @@ class UniverseNormalizer(FactorGroup):
         try:
             trade_day_idx = self.trade_days.index(day)
         except ValueError:
+            print('not valid trading day %d' % day)
             return
         if trade_day_idx == 0:
+            print('not valid trading day %d' % day)
             return
 
         all_days = self.trade_days[max(0, trade_day_idx - self.intraday_num):trade_day_idx]
@@ -244,15 +251,30 @@ class UniverseNormalizer(FactorGroup):
             concat_ticks.columns = ['_'.join(col.split('_')[:-1]) if '_' in col else col for col in
                                     concat_ticks.columns.values]
             concat_ticks['date'] = day
-            print(concat_ticks.columns.tolist())
+            # for sm_col in ['industryRet_std', 'industrySize_mean', 'ICRet_std', 'IFRet_std', 'CSIRet_std',
+            #                'ICSize_mean', 'IFSize_mean', 'CSISize_mean']:
+            for sm_col in ['stockRet_std', 'tradeVol_mean']:
+
+                sm_vals = concat_ticks[sm_col].tolist()
+                sm_model = SimpleExpSmoothing(sm_vals)
+                sm_fit = sm_model.fit(smoothing_level=0.5)
+                concat_ticks['smoothed_'+sm_col] = sm_fit.fittedvalues
+                # print(sm_col, pearsonr(concat_ticks['smoothed_'+sm_col].tolist(), concat_ticks[sm_col].tolist()))
+
             self.factor_dao.save_normalizers(data_df=concat_ticks, factor_group=self.factor_group,
                                              normalizer_name='uni_norm',
                                              skey=None, day=day, version=self.factor_version)
+        else:
+            print('not enough data %d' % day)
 
     def fetch_all(self, prev_day):
 
         print('fetch %d...' % prev_day)
         try:
+            # TODO: get IC members of current date
+            # mta_path = '/b/com_md_eq_cn/mdbar1d_jq/{day}.parquet'.format(day=prev_day)
+            # mta_df = pd.read_parquet(mta_path)
+            # all_skeys = mta_df.loc[mta_df.index_name == 'IC']['skey'].tolist()
             all_skeys = self.factor_dao.get_skeys_by_day(self.factor_group, prev_day, version=self.factor_version)
             # mta_path = '/b/com_md_eq_cn/mdbar1d_jq/{day}.parquet'.format(day=prev_day)
             # mta_df = pd.read_parquet(mta_path)
@@ -262,7 +284,6 @@ class UniverseNormalizer(FactorGroup):
             return None
 
         skey_dfs = list()
-        print(len(all_skeys))
         for skey in all_skeys:
             try:
                 skey_df = self.factor_dao.read_factor_by_skey_and_day(day=prev_day, skey=skey,
@@ -284,9 +305,9 @@ class UniverseNormalizer(FactorGroup):
             if skey_df is not None:
                 skey_dfs.append(skey_df)
         if len(skey_dfs) > 0:
-            # concat_ticks = pd.concat(skey_dfs, ignore_index=True)
-            concat_ticks = max(skey_dfs, key=lambda x: len(x))
-            print(concat_ticks.shape)
+            print(len(skey_dfs))
+            concat_ticks = pd.concat(skey_dfs, ignore_index=True)
+            # concat_ticks = max(skey_dfs, key=lambda x: len(x))
             # concat_ticks = concat_ticks[['minute', 'IFRet', 'ICRet', 'CSIRet', 'IFSize', 'ICSize', 'CSISize']]
             concat_ticks = concat_ticks[self.std_cols]
             concat_ticks = concat_ticks.groupby(by=['minute']).agg([np.nanstd, np.nanmean]).reset_index()
@@ -334,143 +355,6 @@ def normalize_index(tasks):
                           factor_group='norm_factors',
                           escape_factors=['date', 'skey', 'ordering', 'time', 'minute', 'nearLimit'],
                           factor_version='v1')
-
-    unit_tasks = [t for i, t in enumerate(tasks) if i % total_worker == work_id]
-    print('allocate the number of tasks %d out of %d' % (len(unit_tasks), len(tasks)))
-
-    if len(unit_tasks) > 0:
-        s = time.time()
-        dn.cluster_parallel_execute(days=None,
-                                    skeys=[d for d in unit_tasks])
-        e = time.time()
-        print('time used %f' % (e - s))
-
-
-def normalize_price(tasks):
-    array_id = int(get_slurm_env("SLURM_ARRAY_TASK_ID"))
-    array_size = int(get_slurm_env("SLURM_ARRAY_TASK_COUNT"))
-    proc_id = int(get_slurm_env("SLURM_PROCID"))
-    task_size = int(get_slurm_env("SLURM_NTASKS"))
-    work_id = array_id * task_size + proc_id
-    total_worker = array_size * task_size
-
-    # Daily Normalizer
-    unit_tasks = [t for i, t in enumerate(tasks) if i % total_worker == work_id]
-    print('allocate the number of tasks %d out of %d' % (len(unit_tasks), len(tasks)))
-    dn = DailyNormalizer(base_path='/v/sta_fileshare/sta_seq_overhaul/factor_dbs/',
-                         factor_group='lob_static_price_factors',
-                         escape_factors=['date', 'skey', 'ordering', 'time', 'minute', 'SortIndex'],
-                         factor_version='v1')
-
-    unit_tasks = [t for i, t in enumerate(tasks) if i % total_worker == work_id]
-    print('allocate the number of tasks %d out of %d' % (len(unit_tasks), len(tasks)))
-
-    if len(unit_tasks) > 0:
-        s = time.time()
-        dn.cluster_parallel_execute(days=None,
-                                    skeys=[d for d in unit_tasks])
-        e = time.time()
-        print('time used %f' % (e - s))
-
-    # Minutely Normalizer
-    unit_tasks = [t for i, t in enumerate(tasks) if i % total_worker == work_id]
-    print('allocate the number of tasks %d out of %d' % (len(unit_tasks), len(tasks)))
-    dn = MinuteNormalizer(base_path='/v/sta_fileshare/sta_seq_overhaul/factor_dbs/',
-                          factor_group='lob_static_price_factors',
-                          escape_factors=['date', 'skey', 'ordering', 'time', 'minute', 'SortIndex'],
-                          factor_version='v1')
-
-    unit_tasks = [t for i, t in enumerate(tasks) if i % total_worker == work_id]
-    print('allocate the number of tasks %d out of %d' % (len(unit_tasks), len(tasks)))
-
-    if len(unit_tasks) > 0:
-        s = time.time()
-        dn.cluster_parallel_execute(days=None,
-                                    skeys=[d for d in unit_tasks])
-        e = time.time()
-        print('time used %f' % (e - s))
-
-
-def normalize_label(tasks):
-    array_id = int(get_slurm_env("SLURM_ARRAY_TASK_ID"))
-    array_size = int(get_slurm_env("SLURM_ARRAY_TASK_COUNT"))
-    proc_id = int(get_slurm_env("SLURM_PROCID"))
-    task_size = int(get_slurm_env("SLURM_NTASKS"))
-    work_id = array_id * task_size + proc_id
-    total_worker = array_size * task_size
-
-    # Daily Normalizer
-    unit_tasks = [t for i, t in enumerate(tasks) if i % total_worker == work_id]
-    print('allocate the number of tasks %d out of %d' % (len(unit_tasks), len(tasks)))
-    dn = DailyNormalizer(base_path='/v/sta_fileshare/sta_seq_overhaul/factor_dbs/',
-                         factor_group='label_factors',
-                         escape_factors=['skey', 'time', 'ordering'],
-                         factor_version='v2')
-
-    unit_tasks = [t for i, t in enumerate(tasks) if i % total_worker == work_id]
-    print('allocate the number of tasks %d out of %d' % (len(unit_tasks), len(tasks)))
-
-    if len(unit_tasks) > 0:
-        s = time.time()
-        dn.cluster_parallel_execute(days=None,
-                                    skeys=[d for d in unit_tasks])
-        e = time.time()
-        print('time used %f' % (e - s))
-
-    # Minutely Normalizer
-    # unit_tasks = [t for i, t in enumerate(tasks) if i % total_worker == work_id]
-    # print('allocate the number of tasks %d out of %d' % (len(unit_tasks), len(tasks)))
-    # dn = MinuteNormalizer(base_path='/v/sta_fileshare/sta_seq_overhaul/factor_dbs/',
-    #                       factor_group='stav2_factors',
-    #                       escape_factors=['skey', 'time', 'ordering', 'nearLimit', 'SortIndex', 'minute'],
-    #                       factor_version='v1')
-    #
-    # unit_tasks = [t for i, t in enumerate(tasks) if i % total_worker == work_id]
-    # print('allocate the number of tasks %d out of %d' % (len(unit_tasks), len(tasks)))
-    #
-    # if len(unit_tasks) > 0:
-    #     s = time.time()
-    #     dn.cluster_parallel_execute(days=None,
-    #                                 skeys=[d for d in unit_tasks])
-    #     e = time.time()
-    #     print('time used %f' % (e - s))
-
-
-def normalize_size(tasks):
-    array_id = int(get_slurm_env("SLURM_ARRAY_TASK_ID"))
-    array_size = int(get_slurm_env("SLURM_ARRAY_TASK_COUNT"))
-    proc_id = int(get_slurm_env("SLURM_PROCID"))
-    task_size = int(get_slurm_env("SLURM_NTASKS"))
-    work_id = array_id * task_size + proc_id
-    total_worker = array_size * task_size
-    #
-    # # Daily Normalizer
-    # unit_tasks = [t for i, t in enumerate(tasks) if i % total_worker == work_id]
-    # print('allocate the number of tasks %d out of %d' % (len(unit_tasks), len(tasks)))
-    # dn = DailyNormalizer(base_path='/b/work/pengfei_ji/factor_dbs/',
-    #                      factor_group='lob_static_size_factors',
-    #                      escape_factors=['skey', 'ordering', 'time',
-    #                                      'minute', 'nearLimit', 'SortIndex'],
-    #                      factor_version='v2')
-    #
-    # unit_tasks = [t for i, t in enumerate(tasks) if i % total_worker == work_id]
-    # print('allocate the number of tasks %d out of %d' % (len(unit_tasks), len(tasks)))
-    #
-    # if len(unit_tasks) > 0:
-    #     s = time.time()
-    #     dn.cluster_parallel_execute(days=None,
-    #                                 skeys=[d for d in unit_tasks])
-    #     e = time.time()
-    #     print('time used %f' % (e - s))
-
-    # Minutely Normalizer
-    unit_tasks = [t for i, t in enumerate(tasks) if i % total_worker == work_id]
-    print('allocate the number of tasks %d out of %d' % (len(unit_tasks), len(tasks)))
-    dn = MinuteNormalizer(base_path='/v/sta_fileshare/sta_seq_overhaul/factor_dbs/',
-                          factor_group='lob_static_size_factors',
-                          escape_factors=['skey', 'ordering', 'time', 'minute', 'SortIndex', 'nearLimit'],
-                          factor_version='v2')
-
     unit_tasks = [t for i, t in enumerate(tasks) if i % total_worker == work_id]
     print('allocate the number of tasks %d out of %d' % (len(unit_tasks), len(tasks)))
 
@@ -483,20 +367,28 @@ def normalize_size(tasks):
 
 
 def main():
-    skey_list = set()
-    dist_tasks = []
+    # skey_list = set()
+    # dist_tasks = []
+    #
+    # with open(f'/b/work/pengfei_ji/factor_dbs/stock_map/ic_price_group/period_skey2groups.pkl', 'rb') as fp:
+    #     grouped_skeys = pickle.load(fp)
+    # ranges = [20200101, 20200201, 20200301, 20200401, 20200501, 20200601,
+    #           20200701, 20200801, 20200901, 20201001, 20201101, 20201201]
+    # for r_i in ranges:
+    #     skey_list |= (grouped_skeys[r_i]['HIGH'] | grouped_skeys[r_i]['MID_HIGH'] | grouped_skeys[r_i]['MID_LOW'] |
+    #                   grouped_skeys[r_i]['LOW'])
+    # for skey_i in skey_list:
+    #     dist_tasks.append(skey_i)
+    #
+    # dist_tasks = list(sorted(dist_tasks))
 
-    with open(f'/b/work/pengfei_ji/factor_dbs/stock_map/ic_price_group/period_skey2groups.pkl', 'rb') as fp:
-        grouped_skeys = pickle.load(fp)
-    ranges = [20200101, 20200201, 20200301, 20200401, 20200501, 20200601,
-              20200701, 20200801, 20200901, 20201001, 20201101, 20201201]
-    for r_i in ranges:
-        skey_list |= (grouped_skeys[r_i]['HIGH'] | grouped_skeys[r_i]['MID_HIGH'] | grouped_skeys[r_i]['MID_LOW'] |
-                      grouped_skeys[r_i]['LOW'])
-    for skey_i in skey_list:
-        dist_tasks.append(skey_i)
-
+    with open('/b/home/pengfei_ji/airflow_scripts/rich_workflow/all_ic.json', 'rb') as fp:
+        all_skeys = pickle.load(fp)
+    dist_tasks = all_skeys
     dist_tasks = list(sorted(dist_tasks))
+    dist_tasks = [1601865]
+    random.seed(1024)
+    random.shuffle(dist_tasks)
     # normalize_size(dist_tasks)
     # normalize_label(dist_tasks)
     normalize_index(dist_tasks)
@@ -514,7 +406,7 @@ def univ_norm(factor_name, ver='v1'):
     task_size = int(get_slurm_env("SLURM_NTASKS"))
     work_id = array_id * task_size + proc_id
     total_worker = array_size * task_size
-    dist_tasks = list(sorted([d for d in get_trade_days() if 20190101 <= d <= 20201231]))
+    dist_tasks = list(sorted([d for d in get_trade_days() if 20190101 <= d <= 20221201]))
 
     # unit_tasks = [t for i, t in enumerate(dist_tasks) if i % total_worker == work_id]
     per_task = int(len(dist_tasks) / total_worker) + 1
@@ -535,77 +427,5 @@ def univ_norm(factor_name, ver='v1'):
 
 
 if __name__ == '__main__':
-    pass
-    # factor_dao = FactorDAO('/v/sta_fileshare/sta_seq_overhaul/factor_dbs/')
-    # all_skeys = factor_dao.get_skeys_by_day('lob_static_size_factors', 20200701, version='v2')
-    # for skey in all_skeys:
-    #     print(20200701, skey)
-    #     skey_df = factor_dao.read_factor_by_skey_and_day(day=20200701, skey=skey,
-    #                                                      factor_group='lob_static_size_factors',
-    #                                                      version='v1', )
-    #
-    # exit()
-    # all_skeys = set()
-    # for d in get_trade_days():
-    #     if 20200101 <= d <= 20201231:
-    #         mta_path = '/b/com_md_eq_cn/mdbar1d_jq/{day}.parquet'.format(day=d)
-    #         mta_df = pd.read_parquet(mta_path)
-    #         mta_skeys = set(mta_df.loc[mta_df.index_name == 'IC'].skey.unique())
-    #         all_skeys = set(all_skeys) | mta_skeys
-    #
-    # current_skeys = set()
-    # with open(f'/b/work/pengfei_ji/factor_dbs/stock_map/ic_price_group/period_skey2groups.pkl', 'rb') as fp:
-    #     grouped_skeys = pickle.load(fp)
-    # ranges = [20200101, 20200201, 20200301, 20200401, 20200501, 20200601,
-    #           20200701, 20200801, 20200901, 20201001, 20201101, 20201201]
-    # for r_i in ranges:
-    #     current_skeys |= (grouped_skeys[r_i]['HIGH'] | grouped_skeys[r_i]['MID_HIGH'] | grouped_skeys[r_i]['MID_LOW'] |
-    #                       grouped_skeys[r_i]['LOW'])
-    # print(len(all_skeys), len(current_skeys))
-    # # with open('./miss_skeys.pkl', 'wb') as fp:
-    # # pickle.dump(all_skeys-current_skeys, fp)
-    # print(len(all_skeys-current_skeys))
-    # exit()
-    # univ_norm('index_factors', ver='v6')
-    # factor_dao.register_normalizer_info(factor_name=factor_name, normalizer_name='uni_norm',
-    #                                     group_type=GroupType.TICK_LEVEL,
-    #                                     store_granularity=StoreGranularity.DAY_FILE, save_format='parquet')
     # main()
-    # factor_dao = FactorDAO('/v/sta_fileshare/sta_seq_overhaul/factor_dbs/')
-    #
-    # factor_dao.register_normalizer_info(factor_name='lob_static_price_factors', normalizer_name='daily_norm',
-    #                                     group_type=GroupType.TICK_LEVEL,
-    #                                     store_granularity=StoreGranularity.SKEY_FILE, save_format='pkl')
-    #
-    # factor_dao.register_normalizer_info(factor_name='lob_static_price_factors', normalizer_name='minute_norm',
-    #                                     group_type=GroupType.TICK_LEVEL,
-    #                                     store_granularity=StoreGranularity.SKEY_FILE, save_format='pkl')
-    #
-    # factor_dao.register_normalizer_info(factor_name='lob_static_size_factors', normalizer_name='daily_norm',
-    #                                     group_type=GroupType.TICK_LEVEL,
-    #                                     store_granularity=StoreGranularity.SKEY_FILE, save_format='pkl')
-    #
-    # factor_dao.register_normalizer_info(factor_name='lob_static_size_factors', normalizer_name='minute_norm',
-    #                                     group_type=GroupType.TICK_LEVEL,
-    #                                     store_granularity=StoreGranularity.SKEY_FILE, save_format='pkl')
-    #
-    # factor_dao.register_normalizer_info(factor_name='index_factors', normalizer_name='daily_norm',
-    #                                     group_type=GroupType.TICK_LEVEL,
-    #                                     store_granularity=StoreGranularity.SKEY_FILE, save_format='pkl')
-    #
-    # factor_dao.register_normalizer_info(factor_name='index_factors', normalizer_name='minute_norm',
-    #                                     group_type=GroupType.TICK_LEVEL,
-    #                                     store_granularity=StoreGranularity.SKEY_FILE, save_format='pkl')
-
-    # main()
-
-    # unit_tasks = [t for i, t in enumerate(dist_tasks) if i % total_worker == work_id]
-    # print('allocate the number of tasks %d out of %d' % (len(unit_tasks), len(dist_tasks)))
-    # geo = DailyNormalizer(base_path=base_path, factor_group='raw_factors')
-    #
-    # if len(unit_tasks) > 0:
-    #     s = time.time()
-    #     geo.cluster_parallel_execute(days=None,
-    #                                  skeys=[d for d in unit_tasks])
-    #     e = time.time()
-    #     print('time used %f' % (e - s))
+    univ_norm(factor_name='norm_factors', ver='v1')

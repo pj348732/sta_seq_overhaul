@@ -49,7 +49,7 @@ class NormGroup(FactorGroup):
         index_norms = self.factor_dao.read_factor_normalizer_by_skey_and_day(factor_group='index_factors',
                                                                              normalizer_name='uni_norm',
                                                                              skey=None,
-                                                                             day=day, version='v6')
+                                                                             day=day, version='v7')
         # size_norms = self.factor_dao.read_factor_normalizer_by_skey_and_day(factor_group='lob_static_size_factors',
         #                                                                     normalizer_name=self.target_norm,
         #                                                                     skey=None,
@@ -65,9 +65,9 @@ class NormGroup(FactorGroup):
         #                                                                    skey=None,
         #                                                                    day=day, version='v1')
         norm_norms = self.factor_dao.read_factor_normalizer_by_skey_and_day(factor_group='norm_factors',
-                                                                            normalizer_name=self.target_norm,
-                                                                            skey=skey,
-                                                                            day=None, version='v1')
+                                                                            normalizer_name='uni_norm',
+                                                                            skey=None,
+                                                                            day=day, version='v1')
         # price_norms = self.factor_dao.read_factor_normalizer_by_skey_and_day(factor_group='lob_static_price_factors',
         #                                                                      normalizer_name=self.target_norm,
         #                                                                      skey=None,
@@ -83,17 +83,16 @@ class NormGroup(FactorGroup):
 
                 if len(norm_df) > 0:
                     # print(norm_df.shape)
-                    # print(norm_df.columns.tolist())
                     self.factor_dao.save_normalizers(data_df=norm_df, factor_group='merged_norms',
-                                                     normalizer_name=self.target_norm,
-                                                     skey=skey, day=day, version='v1')
+                                                     normalizer_name='uni_norm',
+                                                     skey=None, day=day, version='v8')
                 else:
                     print('norm merge error %d, %d' % (day, skey))
             else:
                 print(
                     'specific miss %d, %d: %d, %d' % (day, skey, len(index_norms) > 0, len(norm_norms) > 0,))
         else:
-            print('data miss %d, %d: %d, %d' % (day, skey, index_norms is None, norm_norms is None,))
+            print('data miss %d : %d, %d' % (day, index_norms is None, norm_norms is None,))
 
 
 if __name__ == '__main__':
@@ -121,34 +120,42 @@ if __name__ == '__main__':
     #                                     store_granularity=StoreGranularity.DAY_FILE, save_format='parquet')
     # exit()
 
-    skey_list = set()
-    with open(f'/b/work/pengfei_ji/factor_dbs/stock_map/ic_price_group/period_skey2groups.pkl', 'rb') as fp:
-        grouped_skeys = pickle.load(fp)
-    ranges = [20200101, 20200201, 20200301, 20200401, 20200501, 20200601,
-              20200701, 20200801, 20200901, 20201001, 20201101, 20201201]
-    for r_i in ranges:
-        skey_list |= (grouped_skeys[r_i]['HIGH'] | grouped_skeys[r_i]['MID_HIGH'] | grouped_skeys[r_i]['MID_LOW'] |
-                      grouped_skeys[r_i]['LOW'])
-
+    # skey_list = set()
+    # with open(f'/b/work/pengfei_ji/factor_dbs/stock_map/ic_price_group/period_skey2groups.pkl', 'rb') as fp:
+    #     grouped_skeys = pickle.load(fp)
+    # ranges = [20200101, 20200201, 20200301, 20200401, 20200501, 20200601,
+    #           20200701, 20200801, 20200901, 20201001, 20201101, 20201201]
+    # for r_i in ranges:
+    #     skey_list |= (grouped_skeys[r_i]['HIGH'] | grouped_skeys[r_i]['MID_HIGH'] | grouped_skeys[r_i]['MID_LOW'] |
+    #                   grouped_skeys[r_i]['LOW'])
+    #
+    # dist_tasks = []
+    # for day_i in get_trade_days():
+    #     if 20190101 <= day_i <= 20201231:
+    #         for skey_i in skey_list:
+    #             dist_tasks.append((day_i, skey_i))
     dist_tasks = []
-    for day_i in get_trade_days():
-        if 20190101 <= day_i <= 20201231:
-            for skey_i in skey_list:
-                dist_tasks.append((day_i, skey_i))
+    with open('./all_ic.pkl', 'rb') as fp:
+        all_skeys = pickle.load(fp)
 
-    dist_tasks = set(dist_tasks)
+    for day_i in get_trade_days():
+        if 20190101 <= day_i <= 20221201:
+            # for skey_i in all_skeys:
+            dist_tasks.append(day_i)
+
     dist_tasks = list(sorted(dist_tasks))
     random.seed(1024)
     random.shuffle(dist_tasks)
+
     unit_tasks = [t for i, t in enumerate(dist_tasks) if i % total_worker == work_id]
     print('allocate the number of tasks %d out of %d' % (len(unit_tasks), len(dist_tasks)))
-    ifac = NormGroup('/v/sta_fileshare/sta_seq_overhaul/factor_dbs/', target_norm='minute_norm')
-    ifac.generate_factors(day=20190516, skey=1688321, params=None)
-    exit()
+    ifac = NormGroup('/v/sta_fileshare/sta_seq_overhaul/factor_dbs/', target_norm='uni_norm')
+    # ifac.generate_factors(day=20190902, skey=1600008, params=None)
+    # exit()
     if len(unit_tasks) > 0:
         s = time.time()
-        ifac.cluster_parallel_execute(days=[d[0] for d in unit_tasks],
-                                      skeys=[d[1] for d in unit_tasks])
+        ifac.cluster_parallel_execute(days=[d for d in unit_tasks],
+                                      skeys=None)
         e = time.time()
         print('time used %f' % (e - s))
 

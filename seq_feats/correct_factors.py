@@ -795,8 +795,9 @@ def batch_run():
             # adjust_price(task[0], task[1])
             # add_size(task[0], task[1])
             # divide_event(task[0], task[1])
-            divide_dist(task[0], task[1])
+            # divide_dist(task[0], task[1])
             # add_clf_label(task[0], task[1])
+            add_direction(task[0], task[1])
         e = time.time()
         print('time used %f' % (e - s))
 
@@ -936,6 +937,48 @@ def batch_transfer():
             divide_factors(task[0], task[1])
         e = time.time()
         print('time used %f' % (e - s))
+
+
+def ret_label(x):
+
+    if math.isnan(x):
+        return np.nan
+    if x <= -0.02:
+        return 0
+    elif x == -0.01:
+        return 1
+    elif x == 0:
+        return 2
+    elif x == 0.01:
+        return 3
+    elif x >= 0.02:
+        return 4
+    else:
+        return np.nan
+
+
+# 5986462 5986289
+def add_direction(day_i, skey_i):
+    try:
+        label_df = factor_dao.read_factor_by_skey_and_day(factor_group='label_factors',
+                                                          skey=skey_i, day=day_i, version='v4')
+
+
+    except Exception:
+        print('corrupt %d, %d' % (day_i, skey_i))
+        return
+    raw_df = parse_basic_lv2(day_i, skey_i, is_today=True)
+    if label_df is not None and raw_df is not None:
+        for stride in [10, 30, 100]:
+            for side in ['ask', 'bid']:
+
+                label_df[f'{side}{stride}FutureMove'] = raw_df[f'{side}1p'].diff(stride)
+                label_df[f'{side}{stride}FutureMove'] = label_df[f'{side}{stride}FutureMove']\
+                    .apply(lambda x: ret_label(round(x, 2)))
+
+        factor_dao.save_factors(label_df, skey=skey_i, day=day_i, version='v5', factor_group='label_factors')
+    else:
+        print('empty %d, %d' % (day_i, skey_i))
 
 
 if __name__ == '__main__':

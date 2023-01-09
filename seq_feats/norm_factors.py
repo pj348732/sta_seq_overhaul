@@ -44,6 +44,13 @@ class NormFactors(FactorGroup):
         ]
 
     def generate_factors(self, day, skey, params):
+
+        exist_df = self.factor_dao.read_factor_by_skey_and_day(factor_group='norm_factors', version='v1',
+                                                               day=day, skey=skey)
+        if exist_df is not None:
+            print('already %d, %d' % (day, skey))
+            return
+
         lv2_df = self.parse_basic_lv2(day, skey, is_today=True)
         mta_path = '/b/com_md_eq_cn/mdbar1d_jq/{day}.parquet'.format(day=day)
 
@@ -65,8 +72,7 @@ class NormFactors(FactorGroup):
             lv2_df['spread'] = lv2_df['ask1p'] - lv2_df['bid1p']
             lv2_df['spread_tick'] = lv2_df['spread'] / 0.01
             lv2_df = lv2_df[self.keep_cols + self.index_cols]
-            # print(lv2_df['tradeVol'].mean(), lv2_df['tradeVol'].std())
-            # print(lv2_df['meanSize'].mean(), lv2_df['meanSize'].std())
+
             self.factor_dao.save_factors(data_df=lv2_df, factor_group='norm_factors',
                                          skey=skey, day=day, version='v1')
             # exit()
@@ -167,19 +173,36 @@ if __name__ == '__main__':
     work_id = array_id * task_size + proc_id
     total_worker = array_size * task_size
 
-    skey_list = set()
-    with open(f'/b/work/pengfei_ji/factor_dbs/stock_map/ic_price_group/period_skey2groups.pkl', 'rb') as fp:
-        grouped_skeys = pickle.load(fp)
-    ranges = [20200101, 20200201, 20200301, 20200401, 20200501, 20200601,
-              20200701, 20200801, 20200901, 20201001, 20201101, 20201201]
-    for r_i in ranges:
-        skey_list |= (grouped_skeys[r_i]['HIGH'] | grouped_skeys[r_i]['MID_HIGH'] | grouped_skeys[r_i]['MID_LOW'] |
-                      grouped_skeys[r_i]['LOW'])
+    # skey_list = set()
+    # with open(f'/b/work/pengfei_ji/factor_dbs/stock_map/ic_price_group/period_skey2groups.pkl', 'rb') as fp:
+    #     grouped_skeys = pickle.load(fp)
+    # ranges = [20200101, 20200201, 20200301, 20200401, 20200501, 20200601,
+    #           20200701, 20200801, 20200901, 20201001, 20201101, 20201201]
+    # for r_i in ranges:
+    #     skey_list |= (grouped_skeys[r_i]['HIGH'] | grouped_skeys[r_i]['MID_HIGH'] | grouped_skeys[r_i]['MID_LOW'] |
+    #                   grouped_skeys[r_i]['LOW'])
+    #
+    # dist_tasks = []
+    # for day_i in get_trade_days():
+    #     if 20190101 <= day_i <= 20201231:
+    #         for skey_i in skey_list:
+    #             dist_tasks.append((day_i, skey_i))
+
+    # with open('/b/home/pengfei_ji/airflow_scripts/rich_workflow/all_ic.json', 'rb') as fp:
+    #     all_skeys = pickle.load(fp)
+    #
+    # for day_i in get_trade_days():
+    #     if 20190101 <= day_i <= 20221201:
+    #         for skey_i in all_skeys:
+    #             dist_tasks.append((day_i, skey_i))
 
     dist_tasks = []
+    with open('./all_ic.pkl', 'rb') as fp:
+        all_skeys = pickle.load(fp)
+
     for day_i in get_trade_days():
-        if 20190101 <= day_i <= 20201231:
-            for skey_i in skey_list:
+        if 20190101 <= day_i <= 20221201:
+            for skey_i in all_skeys:
                 dist_tasks.append((day_i, skey_i))
 
     dist_tasks = list(sorted(dist_tasks))
@@ -188,10 +211,7 @@ if __name__ == '__main__':
     unit_tasks = [t for i, t in enumerate(dist_tasks) if i % total_worker == work_id]
     print('allocate the number of tasks %d out of %d' % (len(unit_tasks), len(dist_tasks)))
     lob_sf = NormFactors('/v/sta_fileshare/sta_seq_overhaul/factor_dbs/')
-    lob_sf.generate_factors(day=20190326, skey=1600633, params=None)
-    lob_sf.generate_factors(day=20200817, skey=1600138, params=None)
-    lob_sf.generate_factors(day=20200207, skey=2000066, params=None)
-    lob_sf.generate_factors(day=20200311, skey=1600348, params=None)
+    lob_sf.generate_factors(day=20221122, skey=1600132, params=None)
     exit()
     if len(unit_tasks) > 0:
         s = time.time()
